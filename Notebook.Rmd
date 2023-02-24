@@ -1,0 +1,262 @@
+---
+title: "Homework #1 - Statistical Methods in Data Science II & Lab"
+author: "Barboni Alessio, 2027647"
+date: "22/04/2022"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi=500)#,fig.width=7)
+```
+# **1. Rome Car Accidents**
+
+```{r,echo=FALSE}
+load("Homework_1.RData")
+my_id <- 104
+mydata <- subset(roma,subset=sign_up_number==my_id)
+```
+
+## 1.1 Data Description
+```{r,echo=FALSE}
+#Print Dataset
+row.names(mydata) <- NULL
+mydata
+```
+The observed data, which is a subset of the original *roma* dataset, consists of 19 observations representing the number of car accidents that occurred in Rome for different weeks of the year 2016. All of them happened on a specific weekday at a specific time, i.e. Saturday at 9:00 am (that has been specified setting "sign_up_number" = 104).
+
+```{r,echo=TRUE}
+#Barplot of Car Accidents
+barplot(mydata$car_accidents, main = "Saturday Car Accidents (at 9 a.m.)", xlab = "Week (of 2016)", ylab = "#Accidents", names.arg = mydata$week, col = "#56f3a0")
+```
+
+## 1.2 Bayesian Model Choices
+
+Let $Y = (Y_1,...,Y_n)$ be the observations, occurring in similar conditions. $Y_i$ is a discrete random variable, having support $k \in \mathbb{N}_0$, i.e. natural numbers starting from zero.
+
+```{r}
+#Observations
+Y.obs <- mydata$car_accidents
+n <- length(Y.obs)
+```
+
+One ingredient of the Bayesian Inferential Framework is the **Likelihood** $f(Y|\theta)$. The statistical model chosen here is a conditionally *i.i.d.* Poisson distribution, with one unknown parameter $\theta$ (i.e., $Y_i\stackrel{i.i.d.}{\sim}Poisson(θ)$, or to stress the dependence on θ even more: $Y_i|\theta\stackrel{i.i.d.}{\sim}Poisson(θ)$). This distribution is appropriate for modelling discrete conditionally independent random events, with support $k \in \mathbb{N}_0$ and a constant mean rate $\theta$, in a fixed interval of time (cf. Wikipedia).
+
+```{r}
+#Likelihood - Poisson(theta)
+likelihood <- function(theta){
+  exp(-n*theta)*theta^(sum(Y.obs))
+}
+curve(likelihood, 0, 15, main="Likelihood Function", col="orchid", lwd=2)
+```
+
+Another ingredient is the **Prior Distribution** $\pi(\theta)$. Its choice could depend on many different factors (e.g., domain-specific knowledge, previous studies, etc). In this case, it will be driven by performance reasons. In fact, if I choose a specific prior, the posterior will end up being in the same family of distributions as the prior. This means that instead of conditioning using the *Bayes Rule* to get the posterior distribution, i.e. multiplying the likelihood and the prior, I can simply perform a prior-to-posterior hyperparameter update. This process is called *Conjugate Analysis*, and it's the most convenient way of approaching the derivation of the posterior distribution since it relies on a closed-form expression rather than numerical integration.
+
+Having a Poisson model as the Likelihood, I can elicit the prior distribution as a Gamma density $\pi(\theta)\sim Gamma(r, s)$. With this *Conjugate Prior* I will have a Gamma posterior by construction (c.f. lectures slides pp. 39, P. Hoff book pp. 52). As prior information, I know the average number of hourly car accidents occurring in Rome during the day, i.e. $\bar{Y_0}=3.22$. Since for a Poisson distribution the expected value is exactly the parameter, that value will be my $\hat{\theta_n}$. This information was retrieved, in my opinion, by simply averaging the "car_accidents" column of the *roma* dataset (i.e., $mean(roma\$car\_accidents)$), containing 2016 data. Hence, to have some information about the variance, the other quantity of interest, I can just compute $Var(roma\$car\_accidents)=7.55$. In the end, I get the hyperparameters solving this set of equations:
+
+$\begin{cases} \mathbb{E}[\theta]=\frac{s}{r} \\ Var[\theta]=\frac{s}{r^2}\end{cases},\begin{cases} \frac{s}{r}=\hat{\theta_n} \\ \frac{s}{r^2}=\hat{\sigma_n^2}\end{cases} = \begin{cases} \frac{s}{r}=3.22 \\ \frac{s}{r^2}=7.55\end{cases} = ... = \begin{cases} s=1.37 \\ r=0.43\end{cases}$
+
+In this way I can obtain my **Posterior Distribution** $\pi(\theta|Y_{obs})$ on $\theta$, i.e. my object of interest, by simply performing an hyperparameter update. In fact, the posterior distribution will be again a Gamma with the following updated hyperparameters: $r_{post}=r_{prior}+n$, $s_{post}=s_{prior}+\sum_{i=1}^nY_i$. From this I can then make inferences (point estimates, credibility intervals, hypothesis testing) or predict new observations.
+
+```{r}
+#Prior Distribution
+s.prior <- 1.37; r.prior <- 0.43
+curve(dgamma(x, shape = s.prior, rate = r.prior), 0, 15, ylim=c(0:1), col="purple", lwd=2, add=F, ylab="prob", xlab="theta")
+
+#Posterior Distribution
+r.post <- r.prior + n; s.post <- s.prior + sum(Y.obs)
+curve(dgamma(x, shape = s.post, rate = r.post), add=T, col="royalblue", lwd=2)
+
+legend("topright", legend=c("Gamma Prior", "Gamma Posterior"), col=c("purple", "royalblue"), lty=1, cex=0.8)
+```
+
+## 1.3 Main Inferential Findings
+
+
+- **(Single) Point Estimates**: $\hat{\theta}$
+
+Let me compute, in closed-form, some basic summaries for the posterior distribution: mean, mode, and median.
+
+```{r}
+#Posterior - Mean
+post.mean <- s.post/r.post
+#Posterior - Mode 
+post.mode <- (s.post-1)/r.post *(s.post>0)
+#Posterior - Median 
+post.median <- qgamma(0.5, rate = r.post, shape = s.post)
+
+cat("Mean:", post.mean, "Mode:", post.mode, "Median:", post.median)
+```
+
+These three point estimates are very similar. This can be explained by noticing that a Gamma distribution, for values of the shape parameter larger than 1, has a unimodal density (here, since I update the shape hyperparameter by adding $\sum_i Y_i^{obs}=74$, the distribution will be unimodal $\forall \; r,s>0$). And, for certain combinations of rate and shape, this density tends to be quite symmetric, as it seems to be the case here. When it is symmetric, the mean, mode and median coincide (here almost, as shown in the plot below).
+
+```{r}
+curve(dgamma(x, shape=s.post, rate=r.post),2, 6, lwd=2, main="Mean, Mode, and Median", ylab="prob", col="blue", xlab="theta")
+lines(c(post.mean,post.mean),c(-1, 2), col="red", lty=2, lwd=1.5)
+lines(c(post.mode,post.mode),c(-1, 2), col="green", lty=2, lwd=1.5)
+lines(c(post.median,post.median),c(-1, 2), col="orchid", lty=2, lwd=1.5)
+legend("topright", legend=c("Post. distribution","Post. Mean","Post. Mode", "Post. Median"), col=c("blue","red","green", "orchid"), lty=c(1,2,2,2), cex=0.8)
+```
+
+- **Interval Estimates**
+
+As for interval estimates on a posterior distribution, there exist different possibilities. Below there are two 95% *Credible Intervals*: the first is an *equal-tailed* interval (*ETI*), the second instead is known as *Highest Posterior Density* interval (*HPDI*).
+
+```{r}
+#Equal-Tailed 95% Credibility Interval for the Posterior  
+edi <- qgamma(c(.025, .975), rate = r.post, shape = s.post)
+print(c(lower = edi[1], upper = edi[2]))
+
+#Highest Posterior Density Interval at 95%
+suppressWarnings(library(TeachingDemos))
+hpdi <- hpd(qgamma, shape=s.post, rate=r.post, conf = .95)
+print(c(lower = hpdi[1], upper = hpdi[2]))
+```
+Equal-tailed credible intervals exclude 2.5% from each tail of the distribution and always include the median, whereas the HPD credible interval is not equal-tailed and always includes the mode of the posterior distribution. Again, for seemingly symmetric distribution, as in this case, it is expected that they return similar bounds (since the mode and the median are quite close to each other).
+```{r}
+#Plot bounds
+curve(dgamma(x, rate=r.post,shape=s.post), 1, 7, lwd=2, col="blue", ylab="prob", main="Gamma PDF + Equal-Tailed & HPD Bounds", xlab="theta")
+lines(c(edi[1],edi[1]),c(-1,2), lwd=2, lty=2, col="red")
+lines(c(edi[2],edi[2]),c(-1,2), lwd=2, lty=2, col="red")
+lines(c(hpdi[1],hpdi[1]),c(-1,2), lwd=2,lty=2, col="green")
+lines(c(hpdi[2],hpdi[2]),c(-1,2), lwd=2,lty=2, col="green")
+lines(c(post.mode,post.mode),c(-1,2),, lty=3, col="orchid")
+lines(c(post.median,post.median),c(-1,2), lty=3, col="purple")
+legend("topright", legend=c("Posterior PDF","Equal-Tailed Bounds", "HPD Bounds", "Mode", "Median"), col=c("blue","red", "green", "orchid", "purple"), lty=c(1,2,2,3,3), cex=0.8)
+```
+
+- **Posterior Uncertainty + Prior and Posterior Differences**
+
+```{r, echo=FALSE}
+#Prior Distribution 
+curve(dgamma(x, shape = s.prior, rate = r.prior), 0, 10, ylim=c(0:1), col="purple", lwd=2, ylab="prob", main="Prior and Posterior Distributions", xlab="theta")
+#Posterior
+curve(dgamma(x, shape = s.post, rate = r.post), add=T, col="royalblue", lwd=2)
+#Prior info on the Mean
+lines(c(3.22, 3.22),c(-1,2), col="green", lty=2)
+legend("topright", legend=c("Posterior Distribution","Prior Distribution", "Prior info (μ=3.22)"), col=c("blue","purple", "green"), lty=c(1,1,2), cex=0.8)
+```
+
+
+The prior is a $Gamma(s=3.22,r=1)$ density, having $\mu=\sigma^2=3.22$. It represent my beliefs on the unknown parameter $\theta$ before seeing any data.    
+
+The posterior is a $Gamma(s=77.22,r=20)$ density, having $\mu=\frac{s.post}{r.post}=3.86$ and $\sigma^2=\frac{s.post}{r.post^2}=0.19$. It represents the revised state of uncertainty about $\theta$ after seeing new data (i.e., my $Y_{obs}$).
+
+```{r}
+##Prior and Posterior Comparison
+#Prior - Mean
+prior.mean <- 3.22
+#Prior - Mode
+prior.mode <- (s.prior-1)/r.prior *(s.prior>0)
+#Prior - Median
+prior.median <- qgamma(0.5, rate = r.prior, shape = s.prior)
+```
+
+```{r, echo=FALSE}
+print(c("Prior Mean"= prior.mean, "Posterior Mean"=post.mean))
+print(c("Prior Mode"= prior.mode, "Posterior Mode"=post.mode))
+print(c("Prior Median"= prior.median, "Posterior Median"=post.median))
+```
+
+
+So, both distributions are unimodal, the prior is right-skewed, and thus unlike the posterior it appears not to be symmetric (as confirmed by the significant difference between its mean and mode values). They have quite different summaries as shown above.
+
+From a Bayesian perspective, the data-driven update resulted in a more concentrated posterior distribution (i.e., a smaller variance with respect to the Prior distribution), indicating a large decrease in the level of the posterior uncertainty about the unknown parameter $\theta$. In fact the variance has dropped from 3.22 to 0.19!
+
+Also, it seems to be shifted to the right, possibly suggesting that the real car accidents mean is larger than the one specified by the prior information (i.e., $\mu>\mu_0=3.22$).
+
+# **2. Bulb Lifetime**
+
+```{r}
+Y.obs <- c(1, 13, 27, 43, 73, 75, 154, 196, 220, 297, 344, 610, 734, 783, 796, 845, 859, 992, 1066, 1471)
+n <- length(Y.obs)
+```
+
+Let $Y = (Y_1,...,Y_n)$ be the observations, occurring in similar conditions. $Y_i$ is a continuos random variable, having support $k \in\mathbb{R}_+$.
+
+## 2.1 Bayesian Model Choices
+
+The likelihood $f(Y|\theta)$ is an *Exponential* function with an unknown parameter $\theta$, i.e. $Y_i~|\theta\stackrel{i.i.d.}{\sim}Exponential(\theta)$. This family of distributions is appropriate for modelling the amount of time passing between events occurring independently at a constant average rate (the time to failure of light bulbs in this case).
+
+The prior distribution $\pi(\theta)$ will consequently be elicited as a Gamma distribution, i.e. $\pi(\theta)\sim Gamma(r, s)$, in order to exploit the advantages of the *Conjugate Analysis*.
+
+The posterior distribution will have a Gamma density, same as the conjugate prior, but with updated *rate* and *shape* hyperparameters. Let us compute them from scratch:
+
+$Y_i\sim Exp(\theta)=\theta e^{-\theta y}, \; L_{y_1,..,y_n}(\theta)=\prod_{i=1}^n \theta e^{-\theta y_i}=...=\theta^n e^{-\theta \sum_{i=1}^n y_i}$
+
+It can be noticed that the kernel of a Gamma is: $e^{-\color{red}{r}\theta}\theta^{\color{blue}{s-1}}$
+
+The posterior will be $(\theta^n e^{-\theta \sum_{i=1}^n y_i})*(e^{-r\theta}\theta^{s-1})= ... = \theta^{\color{blue}{n+s-1}}  e^{-(\color{red}{r+\sum_{i=1}^n y_i})\theta}$, discarding the proportionality constant.
+
+As it can be noticed, the posterior is still a gamma distribution as expected, with hyperparameters: $r_{post} = r_{prior} + \sum_{i=1}^n y_i, s_{post} = s_{prior} + n$. (Note: they get updated in the opposite way wrt the Poisson).
+
+
+## 2.2 + 2.3 Specify Prior Parameters 
+
+In order to have a conjugate prior distribution $\pi(\theta)$ with $\mu=0.003$ and $\sigma = 0.00173$ I have to solve a system of two equations and two unknowns. 
+
+$\begin{cases} \mathbb{E}[\theta]=\frac{s}{r} \\ Var[\theta]=\frac{s}{r^2}\end{cases},\begin{cases} \frac{s}{r}=\mu_0 \\ \sqrt{\frac{s}{r^2}}=\sigma_0\end{cases} = \begin{cases} \frac{s}{r}=0.003 \\ \sqrt{\frac{s}{r^2}}=0.00173\end{cases} = ... = \begin{cases} s=3.01 \\ r=1002.37\end{cases}$
+
+These values constitute my prior belief about the unknown parameter $\theta$, before seeing any data specific to this study. Hence, there are no guarantees that they will be representative of the population of my phenomenon of interest.
+
+In addition, from these specific choices of mean and standard deviation, it can be noticed that the uncertainty (variance) about the unknown parameter is quite high, compared to the mean. The ratio of the standard deviation $\sigma$ to the mean $\mu$, the s.c. *Relative Standard Deviation*, is in fact $\frac{0.00173}{0.003}=0.58$, which is indeed large. 
+
+This becomes even more clear when thinking about the transformation $\psi=\frac{1}{\theta}$:
+$\theta \sim Gamma(shape=3.01, rate = 1002.37)$, or alternatively re-parameterizing for *shape* and *scale*:
+
+$\begin{cases} shape * scale =0.003 \\shape * scale^2=0.00173^2\end{cases} = \begin{cases} shape=3 \\ scale=0.001\end{cases}$
+
+Then, if $\theta \sim Gamma(shape, scale), \frac{1}{\theta} \sim InvGamma(shape, \frac{1}{scale})$, hence $\frac{1}{\theta} \sim InvGamma(shape=3, scale=1000)$.
+
+The mean and standard deviation of the inverse gamma will be: $\mu=\frac{scale}{shape-1}=\frac{1000}{3-1}=500, \; sd=\sqrt{\frac{scale^2}{(shape-1)^2(shape-2)}}=\sqrt{\frac{1000^2}{4}}=500$.
+
+## 2.4 Conjugate Bayesian Analysis Fit
+
+This setup is typical of the conjugate Bayesian analysis framework, since to get the posterior distribution, my main object of interest, I do not need to perform any numerical integration, nor to specify the normalizing constant. It is enough to perform the s.c. prior-to-posterior hyperparameter update to the conjugate prior hyperparameters. 
+
+The proof of the fact that the gamma distribution can be a conjugate prior for the Exponential distribution is in *point 2.1*.
+
+## 2.5 Lifetime of Innovative Bulbs 
+
+```{r}
+#Prior
+r.prior <- 1002.37; s.prior <- 3.01 
+#Posterior
+r.post <- r.prior + sum(Y.obs); s.post <- s.prior + n
+
+curve(dgamma(x, shape = s.post, rate = r.post),0, 0.01, add=F, col="royalblue", lwd=2, xlab="theta")
+curve(dgamma(x, shape = s.prior, rate = r.prior), col="purple", lwd=2, add=T)
+lines(c(s.prior/r.prior,s.prior/r.prior),c(-100,1000), col="green", lwd=1.5, lty=2)
+lines(c(s.post/r.post,s.post/r.post),c(-100,1000), col="red", lwd=1.5, lty=2)
+legend("topright", legend=c("Gamma Prior", "Gamma Posterior", "Prior Mean", "Posterior Mean"), col=c("purple", "royalblue", "green", "red"), lty=c(1,1,2,2), cex=0.8)
+```
+
+From the posterior I can obtain some summaries about the unknown $\theta$:
+
+```{r}
+#Posterior - Mean
+post.mean <- s.post/r.post
+#Posterior - Mode 
+post.mode <- (s.post-1)/r.post *(s.post>0)
+#Posterior - Median 
+post.median <- qgamma(0.5, rate = r.post, shape = s.post)
+
+cat("Mean:", round(post.mean,5), "Mode:", round(post.mode,5), "Median:", round(post.median,5))
+```
+
+Also, $\sigma^2=\frac{s.post}{r.post^2}=2.04e-07$.
+
+However, unlike the Poisson case, to get some insights on the average lifetime of the bulbs I should rely on the transformation $\psi=\frac{1}{\theta}$, since that is the expected value of an Exponential distribution. $\psi \sim InvGamma(shape=23.01,scale=10601.37)$, whose mean is: $\mathbb{E}[\psi]=\frac{scale}{shape-1}=481.66$. Hence, thanks to that transformation of random variables, I have learned some information about $\psi$ by analyzing the posterior distribution of my unknown $\theta$.
+
+## 2.6 Probability of Lasting More than a Threshold
+
+To compute the probability that the average bulb lifetime exceeds a certain threshold I can use the *Cumulative Distribution Function* of $\psi$: $\;\mathbb{P}(\frac{1}{\theta}>550) = 1 - \mathbb{P}(\frac{1}{\theta}<550) = 1-\mathbb{P}(\psi<550)=1-F_{\psi}(550)$
+
+```{r}
+library(invgamma)
+prob <- pinvgamma(550, shape=s.post, rate = r.post)
+prob
+```
+Hence, the probability that the average bulb lifetime exceeds 550 hours, after updating my initial beliefs, is: $1-\mathbb{P}(\psi<550) = 1 - 0.775 = 0.225$.
